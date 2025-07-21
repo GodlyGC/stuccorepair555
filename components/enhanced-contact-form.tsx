@@ -546,7 +546,7 @@ export default function EnhancedContactForm() {
     <>
       {/* Desktop Form (inline to keep controlled inputs stable) */}
       <Card className="hidden md:block bg-white/95 backdrop-blur-sm shadow-2xl">
-        <CardContent className="p-6 sm:p-8">
+        <CardContent className="px-6 sm:px-8 py-8 sm:py-10">
           <div className="text-center mb-6">
             <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Get Your Free Quote</h3>
             <p className="text-sm sm:text-base text-gray-600">Fill out the form below and we'll reach out with a quote within 24 hours!</p>
@@ -778,7 +778,7 @@ export default function EnhancedContactForm() {
 
       {/* Mobile Modal */}
       {isMobileModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-end md:hidden z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-end md:hidden z-[60]">
           <div className="bg-white rounded-t-xl max-h-[90vh] overflow-y-auto w-full">
             <div className="sticky top-0 bg-white border-b px-4 py-3 flex items-center justify-between">
               <h3 className="text-lg font-semibold">Get Your Free Quote</h3>

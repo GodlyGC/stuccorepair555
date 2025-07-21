@@ -261,7 +261,7 @@ export default function StuccoRepairLanding() {
             </div>
 
             {/* Enhanced Right Content - Contact Form */}
-            <div id="contact" className="w-full">
+            <div id="contact" className="w-full my-10 lg:my-12">
               <div className="lg:pl-4">
                 <EnhancedContactForm />
               </div>
