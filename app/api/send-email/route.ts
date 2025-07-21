@@ -44,8 +44,8 @@ export async function POST(req: Request) {
 
     // Send the email
     const info = await transporter.sendMail({
-      from: process.env.EMAIL_FROM || `"Stucco Repair" <adi.bivol@gmail.com>`,
-      to:   process.env.EMAIL_TO || "adi.bivol@gmail.com",
+      from: process.env.EMAIL_FROM || `"Stucco Repair" <gc.giorno@gmail.com>`,
+      to:   process.env.EMAIL_TO || "gc.giorno@gmail.com",
       subject: `New Stucco Repair Quote Request from ${name}`,
       text:
         `Name: ${name}\n` +

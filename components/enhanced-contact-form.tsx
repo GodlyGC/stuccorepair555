@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent } from "@/components/ui/card"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+// Removed Alert and AlertDescription as submission feedback is now handled by a modal
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -15,6 +15,7 @@ import {
   AlertCircle,
   Loader2,
   ArrowRight,
+  ArrowLeft,
   Phone,
   Mail,
   User,
@@ -22,6 +23,7 @@ import {
   Shield,
   X,
   Camera,
+  ChevronRight,
 } from "lucide-react"
 import type { FormData } from "@/lib/emailjs-service"
 
@@ -42,6 +44,10 @@ export default function EnhancedContactForm() {
   const closeUpInputRef = useRef<HTMLInputElement>(null)
   const farAwayInputRef = useRef<HTMLInputElement>(null)
 
+  // Form step state
+  const [currentStep, setCurrentStep] = useState(1)
+  const [isMobileModalOpen, setIsMobileModalOpen] = useState(false)
+
   const [formData, setFormData] = useState<FormData>({
     name: "",
     email: "",
@@ -61,11 +67,12 @@ export default function EnhancedContactForm() {
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false)
   const [showTermsOfService, setShowTermsOfService] = useState(false)
 
-  const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
+  const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB per file
+  const MAX_TOTAL_SIZE = 20 * 1024 * 1024 // 20MB total
   const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"]
   const MAX_FILES_PER_CATEGORY = 3
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
     setFormData((prev) => ({
       ...prev,
@@ -75,7 +82,7 @@ export default function EnhancedContactForm() {
     if (submitResult) {
       setSubmitResult(null)
     }
-  }
+  }, [submitResult])
 
   const handleCheckboxChange = (name: "privacyConsent" | "termsConsent", checked: boolean) => {
     setFormData((prev) => ({
@@ -93,6 +100,11 @@ export default function EnhancedContactForm() {
     }
     return { isValid: true }
   }, [])
+
+  const getTotalFileSize = useCallback(() => {
+    const allFiles = [...closeUpFiles, ...farAwayFiles]
+    return allFiles.reduce((total, fileData) => total + fileData.file.size, 0)
+  }, [closeUpFiles, farAwayFiles])
 
   const createFilePreview = useCallback(
     async (file: File): Promise<FileWithPreview> => {
@@ -127,6 +139,19 @@ export default function EnhancedContactForm() {
       if (availableSlots <= 0) return
 
       const filesToProcess = Array.from(files).slice(0, availableSlots)
+      
+      // Check total size limit
+      const currentTotalSize = getTotalFileSize()
+      const newFilesSize = filesToProcess.reduce((total, file) => total + file.size, 0)
+      
+      if (currentTotalSize + newFilesSize > MAX_TOTAL_SIZE) {
+        setSubmitResult({
+          success: false,
+          message: `Total file size would exceed ${MAX_TOTAL_SIZE / (1024 * 1024)}MB limit. Please select smaller files.`
+        })
+        return
+      }
+
       const newFiles = await Promise.all(filesToProcess.map(createFilePreview))
 
       const updatedFiles = [...currentFiles, ...newFiles]
@@ -138,7 +163,7 @@ export default function EnhancedContactForm() {
         [category === "closeUp" ? "closeUpFile" : "farAwayFile"]: firstValidFile,
       }))
     },
-    [closeUpFiles, farAwayFiles, createFilePreview],
+    [closeUpFiles, farAwayFiles, createFilePreview, getTotalFileSize],
   )
 
   const removeFile = useCallback(
@@ -186,7 +211,7 @@ export default function EnhancedContactForm() {
     [formatPhoneNumber],
   )
 
-  const validateForm = useCallback((): { isValid: boolean; errors: string[] } => {
+  const validateStep1 = useCallback((): { isValid: boolean; errors: string[] } => {
     const errors: string[] = []
     if (!formData.name.trim()) errors.push("Name is required")
     if (!formData.email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim()))
@@ -195,6 +220,12 @@ export default function EnhancedContactForm() {
       errors.push("A valid phone number is required")
     if (!formData.projectInfo.trim() || formData.projectInfo.trim().length < 20)
       errors.push("Detailed project info (min 20 chars) is required")
+
+    return { isValid: errors.length === 0, errors }
+  }, [formData])
+
+  const validateStep2 = useCallback((): { isValid: boolean; errors: string[] } => {
+    const errors: string[] = []
     if (closeUpFiles.filter((f) => !f.error).length === 0) errors.push("Close-up photo is required")
     if (farAwayFiles.filter((f) => !f.error).length === 0) errors.push("Wide view photo is required")
     if ([...closeUpFiles, ...farAwayFiles].some((f) => f.error)) errors.push("Please fix file errors")
@@ -204,12 +235,27 @@ export default function EnhancedContactForm() {
     return { isValid: errors.length === 0, errors }
   }, [formData, closeUpFiles, farAwayFiles])
 
+  const handleNextStep = () => {
+    const validation = validateStep1()
+    if (!validation.isValid) {
+      setSubmitResult({ success: false, message: `Please fix: ${validation.errors.join(", ")}` })
+      return
+    }
+    setSubmitResult(null)
+    setCurrentStep(2)
+  }
+
+  const handlePrevStep = () => {
+    setSubmitResult(null)
+    setCurrentStep(1)
+  }
+
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault()
-      const validation = validateForm()
+      const validation = validateStep2()
       if (!validation.isValid) {
-        setSubmitResult({ success: false, message: `Please fix the following errors: ${validation.errors.join(", ")}` })
+        setSubmitResult({ success: false, message: `Please fix: ${validation.errors.join(", ")}` })
         return
       }
 
@@ -265,7 +311,10 @@ export default function EnhancedContactForm() {
           })
           setCloseUpFiles([])
           setFarAwayFiles([])
+          setCurrentStep(1)
           if (formRef.current) formRef.current.reset()
+          // Close mobile modal if open
+          setIsMobileModalOpen(false)
         } else {
           setSubmitResult({
             success: false,
@@ -281,10 +330,10 @@ export default function EnhancedContactForm() {
         setIsSubmitting(false)
       }
     },
-    [formData, closeUpFiles, farAwayFiles, validateForm],
+    [formData, closeUpFiles, farAwayFiles, validateStep2],
   )
 
-  // --- FileUploadArea component with drag-and-drop fix ---
+  // Enhanced FileUploadArea component with mobile optimization
   const FileUploadArea = ({
     category,
     title,
@@ -308,12 +357,12 @@ export default function EnhancedContactForm() {
 
         <div
           className={`
-            relative border-2 border-dashed rounded-lg p-6 text-center transition-all duration-200 cursor-pointer
+            relative border-2 border-dashed rounded-lg p-4 sm:p-6 text-center transition-all duration-200 cursor-pointer
             ${
               validFiles.length > 0
-                ? "border-green-400 bg-green-50"
+                ? "border-green-400 bg-green-50 hover:bg-green-100"
                 : hasErrors
-                  ? "border-red-400 bg-red-50"
+                  ? "border-red-400 bg-red-50 hover:bg-red-100"
                   : "border-gray-300 hover:border-gray-400 hover:bg-gray-50"
             }
           `}
@@ -341,7 +390,7 @@ export default function EnhancedContactForm() {
 
           {files.length === 0 ? (
             <div className="space-y-3">
-              <Upload className="w-12 h-12 mx-auto text-gray-400" />
+              <Upload className="w-10 h-10 sm:w-12 sm:h-12 mx-auto text-gray-400" />
               <div>
                 <p className="text-sm font-medium text-gray-700">Click to upload or</p>
                 <button
@@ -354,7 +403,7 @@ export default function EnhancedContactForm() {
                 >
                   browse files
                 </button>
-                <p className="text-xs text-gray-500 mt-1">JPEG, PNG, GIF, WebP up to 5MB each</p>
+                <p className="text-xs text-gray-500 mt-1">JPEG, PNG, GIF, WebP up to 4MB each</p>
               </div>
             </div>
           ) : (
@@ -418,232 +467,304 @@ export default function EnhancedContactForm() {
                     className="inline-flex items-center px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
                   >
                     <Upload className="w-4 h-4 mr-2" />
-                    Add More Photos ({files.length}/{MAX_FILES_PER_CATEGORY})
+                    Add More Photos
                   </button>
                 </div>
               )}
             </div>
           )}
         </div>
-
-        <div className="flex items-center justify-between text-xs">
-          <div className="flex items-center space-x-4">
-            {validFiles.length > 0 && (
-              <Badge variant="outline" className="text-green-700 border-green-300 bg-green-50">
-                <CheckCircle className="w-3 h-3 mr-1" />
-                {validFiles.length} valid file{validFiles.length !== 1 ? "s" : ""}
-              </Badge>
-            )}
-            {hasErrors && (
-              <Badge variant="outline" className="text-red-700 border-red-300 bg-red-50">
-                <AlertCircle className="w-3 h-3 mr-1" />
-                {files.filter((f) => f.error).length} error{files.filter((f) => f.error).length !== 1 ? "s" : ""}
-              </Badge>
-            )}
-          </div>
-          <span className="text-gray-500">
-            {files.length}/{MAX_FILES_PER_CATEGORY} files
-          </span>
-        </div>
       </div>
     )
   }
 
-  // Rest of your component (no changes needed here)
+  // Step Progress Indicator
+  const StepIndicator = () => (
+    <div className="flex items-center justify-center mb-6">
+      <div className="flex items-center space-x-4">
+        <div className={`flex items-center ${currentStep >= 1 ? 'text-red-600' : 'text-gray-400'}`}>
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium border-2 ${
+            currentStep >= 1 ? 'bg-red-600 text-white border-red-600' : 'bg-white border-gray-300'
+          }`}>
+            1
+          </div>
+          <span className="ml-2 text-sm font-medium">Your Info</span>
+        </div>
+        <ChevronRight className="w-4 h-4 text-gray-400" />
+        <div className={`flex items-center ${currentStep >= 2 ? 'text-red-600' : 'text-gray-400'}`}>
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium border-2 ${
+            currentStep >= 2 ? 'bg-red-600 text-white border-red-600' : 'bg-white border-gray-300'
+          }`}>
+            2
+          </div>
+          <span className="ml-2 text-sm font-medium">Photos & Submit</span>
+        </div>
+      </div>
+    </div>
+  )
+
+  // Hidden Mobile Modal Trigger for external buttons
+  const HiddenMobileModalTrigger = () => (
+    <button
+      data-mobile-form-trigger
+      onClick={() => setIsMobileModalOpen(true)}
+      className="hidden"
+      aria-hidden="true"
+    />
+  )
+
+  // Submission Result Modal (appears after form submission on both desktop and mobile)
+  const SubmissionResultModal = () => (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div
+        className={`bg-white rounded-lg max-w-lg w-full border-2 p-6 shadow-lg ${
+          submitResult?.success ? "border-green-500" : "border-red-500"
+        }`}
+      >
+        {submitResult?.success ? (
+          <CheckCircle className="w-12 h-12 mx-auto text-green-600 mb-4" />
+        ) : (
+          <AlertCircle className="w-12 h-12 mx-auto text-red-600 mb-4" />
+        )}
+        <p
+          className={`text-base mb-6 text-center ${
+            submitResult?.success ? "text-green-800" : "text-red-800"
+          }`}
+        >
+          {submitResult?.message}
+        </p>
+        <div className="flex justify-center">
+          <Button onClick={() => setSubmitResult(null)}>Close</Button>
+        </div>
+      </div>
+    </div>
+  )
+
+  // Desktop form will be rendered inline below to avoid remount issues
+
   return (
     <>
-      <Card className="bg-white/95 backdrop-blur-sm shadow-2xl">
-        <CardContent className="p-8">
+      {/* Desktop Form (inline to keep controlled inputs stable) */}
+      <Card className="hidden md:block bg-white/95 backdrop-blur-sm shadow-2xl">
+        <CardContent className="p-6 sm:p-8">
           <div className="text-center mb-6">
-            <h3 className="text-2xl font-bold text-gray-900 mb-2">Get Your Free Quote</h3>
-            <p className="text-gray-600">Fill out the form below and we'll reach out with a quote within 24 hours!</p>
-            <div className="flex items-center justify-center gap-2 mt-3 text-sm text-green-600">
+            <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Get Your Free Quote</h3>
+            <p className="text-sm sm:text-base text-gray-600">Fill out the form below and we'll reach out with a quote within 24 hours!</p>
+            <div className="flex items-center justify-center gap-2 mt-3 text-xs sm:text-sm text-green-600">
               <Shield className="w-4 h-4" />
               <span>Secure • Private • Professional</span>
             </div>
           </div>
 
-          {submitResult && (
-            <Alert
-              className={`mb-6 ${submitResult.success ? "border-green-500 bg-green-50" : "border-red-500 bg-red-50"}`}
-              role="alert"
-            >
-              {submitResult.success ? (
-                <CheckCircle className="h-4 w-4 text-green-600" />
-              ) : (
-                <AlertCircle className="h-4 w-4 text-red-600" />
-              )}
-              <AlertDescription className={submitResult.success ? "text-green-800" : "text-red-800"}>
-                {submitResult.message}
-              </AlertDescription>
-            </Alert>
-          )}
+          <StepIndicator />
 
-          <form ref={formRef} onSubmit={handleSubmit} className="space-y-6">
-            {/* Name Field */}
-            <div>
-              <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
-                <User className="w-4 h-4 mr-2" />
-                Full Name <span className="text-red-500 ml-1">*</span>
-              </label>
-              <Input
-                name="name"
-                value={formData.name}
-                onChange={handleInputChange}
-                placeholder="Enter your full name"
-                className="w-full"
-                required
-                disabled={isSubmitting}
-                maxLength={100}
-              />
-            </div>
+          {/* SubmissionResultModal now handles display; inline Alert removed */}
 
-            {/* Email Field */}
-            <div>
-              <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
-                <Mail className="w-4 h-4 mr-2" />
-                Email Address <span className="text-red-500 ml-1">*</span>
-              </label>
-              <Input
-                type="email"
-                name="email"
-                value={formData.email}
-                onChange={handleInputChange}
-                placeholder="your.email@example.com"
-                className="w-full"
-                required
-                disabled={isSubmitting}
-              />
-            </div>
+          {/* Inline form content reused from previous DesktopForm */}
+          <form ref={formRef} onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
+            {currentStep === 1 && (
+              <>
+                {/* Step 1: Basic Information */}
+                <div>
+                  <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
+                    <User className="w-4 h-4 mr-2" />
+                    Full Name <span className="text-red-500 ml-1">*</span>
+                  </label>
+                  <Input
+                    name="name"
+                    value={formData.name}
+                    onChange={handleInputChange}
+                    placeholder="Enter your full name"
+                    className="w-full h-11 sm:h-12"
+                    required
+                    disabled={isSubmitting}
+                    maxLength={100}
+                  />
+                </div>
 
-            {/* Phone Field */}
-            <div>
-              <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
-                <Phone className="w-4 h-4 mr-2" />
-                Phone Number <span className="text-red-500 ml-1">*</span>
-              </label>
-              <Input
-                type="tel"
-                name="phone"
-                value={formData.phone}
-                onChange={handlePhoneChange}
-                placeholder="(416) 555-0123"
-                className="w-full"
-                required
-                disabled={isSubmitting}
-                maxLength={14}
-              />
-              <p className="text-xs text-gray-500 mt-1">We'll call you within 24 hours to discuss your project</p>
-            </div>
+                <div>
+                  <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
+                    <Mail className="w-4 h-4 mr-2" />
+                    Email Address <span className="text-red-500 ml-1">*</span>
+                  </label>
+                  <Input
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    placeholder="your.email@example.com"
+                    className="w-full h-11 sm:h-12"
+                    required
+                    disabled={isSubmitting}
+                  />
+                </div>
 
-            {/* Project Info Field */}
-            <div>
-              <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
-                <FileText className="w-4 h-4 mr-2" />
-                Project Information <span className="text-red-500 ml-1">*</span>
-              </label>
-              <Textarea
-                name="projectInfo"
-                value={formData.projectInfo}
-                onChange={handleInputChange}
-                placeholder="Describe your stucco repair needs in detail... (minimum 20 characters)"
-                className="w-full h-32 resize-none"
-                required
-                disabled={isSubmitting}
-                maxLength={2000}
-              />
-              <p className="text-xs text-gray-500 mt-1">{formData.projectInfo.length}/2000 characters</p>
-            </div>
+                <div>
+                  <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
+                    <Phone className="w-4 h-4 mr-2" />
+                    Phone Number <span className="text-red-500 ml-1">*</span>
+                  </label>
+                  <Input
+                    type="tel"
+                    name="phone"
+                    value={formData.phone}
+                    onChange={handlePhoneChange}
+                    placeholder="(416) 555-0123"
+                    className="w-full h-11 sm:h-12"
+                    required
+                    disabled={isSubmitting}
+                    maxLength={14}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">We'll call you within 24 hours to discuss your project</p>
+                </div>
 
-            {/* File Upload Fields */}
-            <div className="grid md:grid-cols-2 gap-6">
-              <FileUploadArea
-                category="closeUp"
-                title="Damage Photos (Close-up)"
-                files={closeUpFiles}
-                inputRef={closeUpInputRef}
-              />
+                <div>
+                  <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
+                    <FileText className="w-4 h-4 mr-2" />
+                    Project Information <span className="text-red-500 ml-1">*</span>
+                  </label>
+                  <Textarea
+                    name="projectInfo"
+                    value={formData.projectInfo}
+                    onChange={handleInputChange}
+                    placeholder="Describe your stucco repair needs in detail... (minimum 20 characters)"
+                    className="w-full h-24 sm:h-32 resize-none"
+                    required
+                    disabled={isSubmitting}
+                    maxLength={2000}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">{formData.projectInfo.length}/2000 characters</p>
+                </div>
 
-              <FileUploadArea
-                category="farAway"
-                title="Damage Photos (Wide View)"
-                files={farAwayFiles}
-                inputRef={farAwayInputRef}
-              />
-            </div>
-
-            {/* Consent Checkboxes */}
-            <div className="space-y-4 p-4 bg-gray-50 rounded-lg">
-              <div className="flex items-start space-x-3">
-                <Checkbox
-                  id="privacyConsent"
-                  checked={formData.privacyConsent}
-                  onCheckedChange={(checked) => handleCheckboxChange("privacyConsent", checked as boolean)}
+                <Button
+                  type="button"
+                  onClick={handleNextStep}
+                  className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-base sm:text-lg py-3 sm:py-4 font-semibold transition-all duration-300"
                   disabled={isSubmitting}
-                  className="mt-1"
-                />
-                <label htmlFor="privacyConsent" className="text-sm text-gray-700 leading-relaxed">
-                  I agree to the{" "}
-                  <button
-                    type="button"
-                    onClick={() => setShowPrivacyPolicy(true)}
-                    className="text-blue-600 hover:underline font-medium"
-                  >
-                    Privacy Policy
-                  </button>{" "}
-                  <span className="text-red-500">*</span>
-                </label>
-              </div>
-
-              <div className="flex items-start space-x-3">
-                <Checkbox
-                  id="termsConsent"
-                  checked={formData.termsConsent}
-                  onCheckedChange={(checked) => handleCheckboxChange("termsConsent", checked as boolean)}
-                  disabled={isSubmitting}
-                  className="mt-1"
-                />
-                <label htmlFor="termsConsent" className="text-sm text-gray-700 leading-relaxed">
-                  I agree to the{" "}
-                  <button
-                    type="button"
-                    onClick={() => setShowTermsOfService(true)}
-                    className="text-blue-600 hover:underline font-medium"
-                  >
-                    Terms of Service
-                  </button>{" "}
-                  <span className="text-red-500">*</span>
-                </label>
-              </div>
-            </div>
-
-            {/* Submit Button */}
-            <Button
-              type="submit"
-              className="w-full bg-red-600 hover:bg-red-700 text-lg py-3 font-semibold"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  Sending Request...
-                </>
-              ) : (
-                <>
-                  Send Quote Request
+                >
+                  Next: Upload Photos
                   <ArrowRight className="w-5 h-5 ml-2" />
-                </>
-              )}
-            </Button>
+                </Button>
+              </>
+            )}
+
+            {currentStep === 2 && (
+              <>
+                {/* Step 2: File Upload and Terms */}
+                <div className="space-y-4 sm:space-y-6">
+                  <div className="space-y-4 md:grid md:grid-cols-2 md:gap-6 md:space-y-0">
+                    <FileUploadArea
+                      category="closeUp"
+                      title="Damage Photos (Close-up)"
+                      files={closeUpFiles}
+                      inputRef={closeUpInputRef}
+                    />
+
+                    <FileUploadArea
+                      category="farAway"
+                      title="Damage Photos (Wide View)"
+                      files={farAwayFiles}
+                      inputRef={farAwayInputRef}
+                    />
+                  </div>
+                </div>
+
+                <div className="text-center text-sm text-gray-500">
+                  Total size: {(getTotalFileSize() / (1024 * 1024)).toFixed(1)}MB / 20MB limit
+                </div>
+
+                {/* Compact Consent Checkboxes */}
+                <div className="space-y-3 p-4 bg-gray-50 rounded-lg">
+                  <div className="flex items-start space-x-3">
+                    <Checkbox
+                      id="privacyConsent"
+                      checked={formData.privacyConsent}
+                      onCheckedChange={(checked) => handleCheckboxChange("privacyConsent", checked as boolean)}
+                      disabled={isSubmitting}
+                      className="mt-0.5 flex-shrink-0 !h-3 !w-3 [&>span>svg]:!h-3 [&>span>svg]:!w-3"
+                    />
+                    <label htmlFor="privacyConsent" className="text-sm text-gray-700 leading-relaxed">
+                      I agree to the{" "}
+                      <button
+                        type="button"
+                        onClick={() => setShowPrivacyPolicy(true)}
+                        className="text-blue-600 hover:underline font-medium"
+                      >
+                        Privacy Policy
+                      </button>{" "}
+                      <span className="text-red-500">*</span>
+                    </label>
+                  </div>
+
+                  <div className="flex items-start space-x-3">
+                    <Checkbox
+                      id="termsConsent"
+                      checked={formData.termsConsent}
+                      onCheckedChange={(checked) => handleCheckboxChange("termsConsent", checked as boolean)}
+                      disabled={isSubmitting}
+                      className="mt-0.5 flex-shrink-0 !h-3 !w-3 [&>span>svg]:!h-3 [&>span>svg]:!w-3"
+                    />
+                    <label htmlFor="termsConsent" className="text-sm text-gray-700 leading-relaxed">
+                      I agree to the{" "}
+                      <button
+                        type="button"
+                        onClick={() => setShowTermsOfService(true)}
+                        className="text-blue-600 hover:underline font-medium"
+                      >
+                        Terms of Service
+                      </button>{" "}
+                      <span className="text-red-500">*</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <Button
+                    type="button"
+                    onClick={handlePrevStep}
+                    variant="outline"
+                    className="flex-1 py-3 sm:py-4 text-base sm:text-lg font-semibold"
+                    disabled={isSubmitting}
+                  >
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    Back
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="flex-1 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-base sm:text-lg py-3 sm:py-4 font-semibold transition-all duration-300"
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        Send Request
+                        <ArrowRight className="w-5 h-5 ml-2" />
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </>
+            )}
 
             <div className="text-center">
               <p className="text-xs text-gray-500">
-                <span className="text-red-500">*</span> Required fields • Secure SSL encryption • Response within 24
-                hours
+                <span className="text-red-500">*</span> Required fields • Secure SSL encryption • Response within 24 hours
               </p>
               <p className="text-xs text-gray-400 mt-1">
                 Or call us directly:{" "}
-                <a href="tel:4162944431" className="text-red-600 font-medium">
+                <a 
+                  href="tel:4162944431" 
+                  className="text-red-600 font-medium hover:underline"
+                  onClick={() => {
+                    if (typeof window !== "undefined" && (window as any).gtag_report_conversion) {
+                      (window as any).gtag_report_conversion("tel:4162944431");
+                    }
+                  }}
+                >
                   (416) 294-4431
                 </a>
               </p>
@@ -651,6 +772,219 @@ export default function EnhancedContactForm() {
           </form>
         </CardContent>
       </Card>
+
+      {/* Hidden Mobile Modal Trigger */}
+      <HiddenMobileModalTrigger />
+
+      {/* Mobile Modal */}
+      {isMobileModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-end md:hidden z-50">
+          <div className="bg-white rounded-t-xl max-h-[90vh] overflow-y-auto w-full">
+            <div className="sticky top-0 bg-white border-b px-4 py-3 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Get Your Free Quote</h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsMobileModalOpen(false)}
+              >
+                <X className="w-5 h-5" />
+              </Button>
+            </div>
+            
+                         <div className="p-4 pb-12">
+               <StepIndicator />
+
+               {/* SubmissionResultModal now handles display; inline Alert removed */}
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {currentStep === 1 && (
+                  <>
+                    <div>
+                      <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
+                        <User className="w-4 h-4 mr-2" />
+                        Full Name <span className="text-red-500 ml-1">*</span>
+                      </label>
+                      <Input
+                        name="name"
+                        value={formData.name}
+                        onChange={handleInputChange}
+                        placeholder="Enter your full name"
+                        className="w-full h-12 text-16px"
+                        required
+                        disabled={isSubmitting}
+                        maxLength={100}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
+                        <Mail className="w-4 h-4 mr-2" />
+                        Email Address <span className="text-red-500 ml-1">*</span>
+                      </label>
+                      <Input
+                        type="email"
+                        name="email"
+                        value={formData.email}
+                        onChange={handleInputChange}
+                        placeholder="your.email@example.com"
+                        className="w-full h-12 text-16px"
+                        required
+                        disabled={isSubmitting}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
+                        <Phone className="w-4 h-4 mr-2" />
+                        Phone Number <span className="text-red-500 ml-1">*</span>
+                      </label>
+                      <Input
+                        type="tel"
+                        name="phone"
+                        value={formData.phone}
+                        onChange={handlePhoneChange}
+                        placeholder="(416) 555-0123"
+                        className="w-full h-12 text-16px"
+                        required
+                        disabled={isSubmitting}
+                        maxLength={14}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
+                        <FileText className="w-4 h-4 mr-2" />
+                        Project Information <span className="text-red-500 ml-1">*</span>
+                      </label>
+                      <Textarea
+                        key="mobile-project-info"
+                        id="mobile-project-info"
+                        name="projectInfo"
+                        value={formData.projectInfo}
+                        onChange={handleInputChange}
+                        placeholder="Describe your stucco repair needs in detail..."
+                        className="w-full h-24 resize-none text-16px"
+                        required
+                        disabled={isSubmitting}
+                        maxLength={2000}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">{formData.projectInfo.length}/2000 characters</p>
+                    </div>
+
+                    <Button
+                      type="button"
+                      onClick={handleNextStep}
+                      className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-lg py-4 font-semibold"
+                      disabled={isSubmitting}
+                    >
+                      Next: Upload Photos
+                      <ArrowRight className="w-5 h-5 ml-2" />
+                    </Button>
+                  </>
+                )}
+
+                {currentStep === 2 && (
+                  <>
+                    <div className="space-y-4">
+                      <FileUploadArea
+                        category="closeUp"
+                        title="Damage Photos (Close-up)"
+                        files={closeUpFiles}
+                        inputRef={closeUpInputRef}
+                      />
+
+                      <FileUploadArea
+                        category="farAway"
+                        title="Damage Photos (Wide View)"
+                        files={farAwayFiles}
+                        inputRef={farAwayInputRef}
+                      />
+                    </div>
+
+                    <div className="text-center text-sm text-gray-500">
+                      Total size: {(getTotalFileSize() / (1024 * 1024)).toFixed(1)}MB / 20MB limit
+                    </div>
+
+                    <div className="space-y-3 p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-start space-x-3">
+                                                 <Checkbox
+                           id="privacyConsentMobile"
+                           checked={formData.privacyConsent}
+                           onCheckedChange={(checked) => handleCheckboxChange("privacyConsent", checked as boolean)}
+                           disabled={isSubmitting}
+                           className="mt-0.5 flex-shrink-0 !h-3 !w-3 [&>span>svg]:!h-3 [&>span>svg]:!w-3"
+                         />
+                        <label htmlFor="privacyConsentMobile" className="text-sm text-gray-700 leading-relaxed">
+                          I agree to the{" "}
+                          <button
+                            type="button"
+                            onClick={() => setShowPrivacyPolicy(true)}
+                            className="text-blue-600 hover:underline font-medium"
+                          >
+                            Privacy Policy
+                          </button>{" "}
+                          <span className="text-red-500">*</span>
+                        </label>
+                      </div>
+
+                      <div className="flex items-start space-x-3">
+                                                 <Checkbox
+                           id="termsConsentMobile"
+                           checked={formData.termsConsent}
+                           onCheckedChange={(checked) => handleCheckboxChange("termsConsent", checked as boolean)}
+                           disabled={isSubmitting}
+                           className="mt-0.5 flex-shrink-0 !h-3 !w-3 [&>span>svg]:!h-3 [&>span>svg]:!w-3"
+                         />
+                        <label htmlFor="termsConsentMobile" className="text-sm text-gray-700 leading-relaxed">
+                          I agree to the{" "}
+                          <button
+                            type="button"
+                            onClick={() => setShowTermsOfService(true)}
+                            className="text-blue-600 hover:underline font-medium"
+                          >
+                            Terms of Service
+                          </button>{" "}
+                          <span className="text-red-500">*</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3">
+                      <Button
+                        type="button"
+                        onClick={handlePrevStep}
+                        variant="outline"
+                        className="flex-1 py-4 text-lg font-semibold"
+                        disabled={isSubmitting}
+                      >
+                        <ArrowLeft className="w-4 h-4 mr-2" />
+                        Back
+                      </Button>
+                      <Button
+                        type="submit"
+                        className="flex-1 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-lg py-4 font-semibold"
+                        disabled={isSubmitting}
+                      >
+                        {isSubmitting ? (
+                          <>
+                            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                            Sending...
+                          </>
+                        ) : (
+                          <>
+                            Send Request
+                            <ArrowRight className="w-5 h-5 ml-2" />
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Privacy Policy Modal */}
       {showPrivacyPolicy && (
@@ -660,7 +994,7 @@ export default function EnhancedContactForm() {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-bold">Privacy Policy</h2>
                 <Button variant="ghost" size="sm" onClick={() => setShowPrivacyPolicy(false)}>
-                  ×
+                  <X className="w-4 h-4" />
                 </Button>
               </div>
               <div className="prose prose-sm max-w-none">
@@ -715,7 +1049,7 @@ export default function EnhancedContactForm() {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-bold">Terms of Service</h2>
                 <Button variant="ghost" size="sm" onClick={() => setShowTermsOfService(false)}>
-                  ×
+                  <X className="w-4 h-4" />
                 </Button>
               </div>
               <div className="prose prose-sm max-w-none">
@@ -762,6 +1096,9 @@ export default function EnhancedContactForm() {
           </div>
         </div>
       )}
+
+      {/* Submission Result Modal */}
+      {submitResult && <SubmissionResultModal />}
     </>
   )
 }

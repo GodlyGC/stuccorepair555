@@ -1,5 +1,5 @@
 import type React from "react"
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
 
@@ -28,7 +28,6 @@ export const metadata: Metadata = {
     title: "Professional Stucco Repair Toronto | StuccoRepair.ca",
     description: "Expert stucco repair services in Toronto and GTA.",
   },
-  viewport: "width=device-width, initial-scale=1",
   icons: {
     icon: [
       { url: "/favicon.png", sizes: "32x32", type: "image/png" },
@@ -58,9 +57,15 @@ export const metadata: Metadata = {
     ],
   },
   manifest: "/site.webmanifest",
+  generator: 'v0.dev'
+}
+
+// Move viewport-related fields to dedicated export per Next.js 14 API
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
   themeColor: "#dc2626",
   colorScheme: "light",
-    generator: 'v0.dev'
 }
 
 export default function RootLayout({
